@@ -5,7 +5,7 @@ To do:
 - [ ] Emitir informe resumen
 - [ ] Generar logs de programas intermedios
 - [ ] Subir archivos de prueba
-- [ ] Subir conda env
+- [x] Subir conda env
 - [ ] Redactar README con info básica (workflow) y manual de uso
 - [ ] Organizar en módulos
 - [ ] Pasar a nextflow
