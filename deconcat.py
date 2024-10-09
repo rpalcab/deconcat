@@ -358,7 +358,7 @@ def main():
         with open(smt_err, 'a') as errf:
             subprocess.run(samtools_index_cmd, stderr=errf)
 
-        fastq_sorted_file = os.path.join(map_path, f'{fasta_basename}_concat.sorted.fastq.gz')
+        fastq_sorted_file = os.path.join(out_path, f'{fasta_basename}_concat.sorted.fastq.gz')
         samtools_fastq_cmd = ['samtools', 'fastq',  bam_concat_file]
         gzip_cmd = ['gzip']
         sp = subprocess.run(samtools_fastq_cmd, check=True, capture_output=True)
