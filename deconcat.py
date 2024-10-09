@@ -1,4 +1,5 @@
-# %%
+#!/usr/bin/env python
+
 import os
 import sys
 import gzip
@@ -8,6 +9,7 @@ import subprocess
 import pandas as pd
 import matplotlib.pyplot as plt
 import argparse
+import csv
 
 # %%
 def read_fasta(fasta_file, max_len=200000, query_len=1200):
@@ -151,6 +153,19 @@ def parse_arguments():
 
     return args
 
+#%%
+def write_report(report_path, multimer, monomer_len, max_len, monomers):
+    d_output = {'is_multimer': multimer,
+                'original_len': max_len,
+                'monomer_len': monomer_len,
+                'multiplicity': len(monomers.keys())}
+    
+    with open(report_path, mode='w', newline='') as of:
+        csv_writer = csv.DictWriter(of, fieldnames=d_output.keys())
+        csv_writer.writeheader()
+        csv_writer.writerow(d_output)
+    return None
+
 # %%
 def main():
     args = parse_arguments()
@@ -166,24 +181,31 @@ def main():
     # comprobar que el fasta tiene una sola seq menor que max_len
     check_status, query, d_fasta = read_fasta(fasta_file, max_len)
     if check_status != True:
-        print(f'Please check fasta file: {check_status}')
+        print(f'Please check fasta file: Empty or wrong path.')
         sys.exit(1)
     # fastq
     fastq_file = args.fastq_file
     # output folder
     out_path = args.out_path
     if not os.path.exists(out_path): os.mkdir(out_path)
+    report_path = os.path.join(out_path, f'{fasta_basename}_report.txt')
     # Databases
     # circlator db
     circ_db = args.circ_db
+    if os.path.isfile(circ_db) and os.path.getsize(circ_db):
+        pass
+    else:
+        print(f'Please check circlator DB file: Wrong path or empty file')
+        sys.exit(1)
     # threads
     threads = args.threads
     # plasmid id
     plasmid_id = args.plasmid_id
 
-    print('Repetition identification')
     ## 1. identificación de las repeticiones
-
+    print()
+    print('Step 1: Repetition identification')
+    print()
     # 1.1 recircularizar fasta
     circ_path = os.path.join(out_path, 'circlator')
     circ_fasta = os.path.join(circ_path, f'{fasta_basename}.fasta')
@@ -195,8 +217,10 @@ def main():
     # 1.2 creación de blastdb a partir de fasta circularizado
     blast_path = os.path.join(out_path, 'blastn')
     if not os.path.exists(blast_path): os.mkdir(blast_path)
+    mkblast_err = os.path.join(blast_path, 'makeblastdb.log')
     makeblastdb_cmd = ['makeblastdb', '-in', circ_fasta, '-dbtype', 'nucl', '-out', circ_fasta]
-    subprocess.run(makeblastdb_cmd)
+    with open(mkblast_err, 'w') as errf:
+        subprocess.run(makeblastdb_cmd, stdout=errf, stderr=errf)
 
     # 1.3 guardar query en un archivo
     query_fasta = os.path.join(blast_path, 'query.fasta')
@@ -205,13 +229,14 @@ def main():
 
     # 1.4 localizar repeticiones con blastn
     blast_out = os.path.join(blast_path, f'{fasta_basename}_blast.out')
+    blast_err = os.path.join(blast_path, 'blast.log')
     blastn_cmd = ['blastn', '-query', query_fasta, '-db', circ_fasta, '-strand', 'plus', 
                 '-outfmt', '6 qseqid sseqid pident qcovhsp length qlen slen qstart qend sstart send sframe evalue bitscore',
                 '-perc_identity', '90', '-qcov_hsp_perc', '95']
     sort_cmd = ['sort', '-n', '-k', '10,11']
     sp = subprocess.run(blastn_cmd, check=True, capture_output=True)
-    with open(blast_out, 'w') as of: 
-        subprocess.run(sort_cmd, input=sp.stdout, stdout=of)
+    with open(blast_out, 'w') as stdf, open(blast_err, 'w') as errf: 
+        subprocess.run(sort_cmd, input=sp.stdout, stdout=stdf, stderr=errf)
 
     ## 2. creación del monómero
 
@@ -223,8 +248,12 @@ def main():
     contig_id = list(d_fasta.keys())[0]
 
     monomers, largest_id = extract_monomers(df_reps, d_fasta, contig_id)
+    monomer_len = len(monomers[largest_id])
+    max_len = len(d_fasta[list(d_fasta.keys())[0]])
     if len(monomers.keys()) == 1:
         print('The plasmid introduced is a monomer')
+        write_report(report_path, 'No', monomer_len, max_len, monomers)
+        print(f'Find statistical report on: {report_path}')
         sys.exit(0)
 
     # 2.2 Comprobación de similitud
@@ -237,9 +266,16 @@ def main():
     status, l_complete, l_partial = similarity_check(monomers, largest_id)
     if status == False:
         print('The plasmid introduced is a monomer')
+        write_report(report_path, 'No', max_len, max_len, monomers)
+        print(f'Find statistical report on: {report_path}')
         sys.exit(0)
     
     # 2.3 Alineamiento múltiple de las secuencias que pasan los criterios "completa"
+    print('The plasmid introduced is a multimer')
+    print()
+    print('Step 2: Monomer creation')
+    print()
+
     monomer_file = os.path.join(monomer_path, 'complete_monomers.fasta')
     with open(monomer_file, 'w') as of: 
         for i in l_complete:
@@ -247,24 +283,31 @@ def main():
             of.write(f'{monomers[i]}\n')
 
     aln_file = os.path.join(monomer_path, 'complete_monomers.aln')
+    aln_err = os.path.join(monomer_path, 'mafft.log')
     mafft_cmd = ['mafft', '--adjustdirectionaccurately', '--thread', str(threads), monomer_file]
-    with open(aln_file, 'w') as of:
-        subprocess.run(mafft_cmd, stdout=of)
+    with open(aln_file, 'w') as stdf, open(aln_err, 'w') as errf:
+        subprocess.run(mafft_cmd, stdout=stdf, stderr=errf)
 
     # 2.4 Generación del consenso
     cons_file = os.path.join(out_path, f'{fasta_basename}_consensus.fasta')
     cons_cmd = ['cons', '-sequence', aln_file, '-outseq', cons_file, '-name', fasta_basename]
     subprocess.run(cons_cmd)
 
-    print('The plasmid introduced is a multimer: ')
-    print(f'Find monomer consensus on: {cons_file}')
-    print(f'Find divided multimer on: {monomer_file}')
-    # print(f'Find statistical report on: {}')
+    # 2.5 Devolver report
+    write_report(report_path, 'Yes', monomer_len, max_len, monomers)
 
+    print(f'Find monomer consensus at: {cons_file}')
+    print(f'Find divided multimer at: {monomer_file}')
+    print(f'Find statistical report on: {report_path}')
+    print()
+
+    ## 3. validación del multímero biológico
     if assembly_file != None and fastq_file != None:
-        print('Validating multimer according to long reads')
-        ## 3. validación del multímero biológico
+        print('Step 3: Biological multimer validation')
+        print()
+
         # Mapeo
+        print('Mapping reads to assembly')
         map_path = os.path.join(out_path, 'multimer_mapping')
         if not os.path.exists(map_path): os.mkdir(map_path)
 
@@ -273,59 +316,68 @@ def main():
 
         # mapeo original
         sam_file = os.path.join(map_path, f'{fasta_basename}_whole_genome.sam')
+        sam_err = os.path.join(map_path, f'minimap.log')
         minimap_cmd = ['minimap2', '--secondary=no', '-t', str(threads), '-ax', 'lr:hq', '-o', sam_file, assembly_file, fastq_file]
-        subprocess.run(minimap_cmd)
+        with open(sam_err, 'w') as errf:
+            subprocess.run(minimap_cmd, stderr=errf)
 
         # paso a bam eliminando lecturas no mapeadas
         bam_file = os.path.join(map_path, f'{fasta_basename}_whole_genome.bam')
+        smt_err = os.path.join(map_path, f'samtools.log')
         samtools_filter_cmd = ['samtools', 'view', '-h', '-@', str(threads), '-F', '4', '-bS', sam_file]
-        with open(bam_file, 'w') as of:
-            subprocess.run(samtools_filter_cmd, stdout=of)
+        with open(bam_file, 'w') as stdf, open(smt_err, 'w') as errf:
+            subprocess.run(samtools_filter_cmd, stdout=stdf, stderr=errf)
 
         # ordenar
         bam_sorted_file = os.path.join(map_path, f'{fasta_basename}_whole_genome.sorted.bam')
         samtools_sort_cmd = ['samtools', 'sort', '--threads', str(threads), bam_file, '-o', bam_sorted_file]
-        subprocess.run(samtools_sort_cmd)
+        with open(smt_err, 'a') as errf:
+            subprocess.run(samtools_sort_cmd, stderr=errf)
 
         # generar index
         samtools_index_cmd = ['samtools', 'index', '-@', str(threads), bam_sorted_file]
-        subprocess.run(samtools_index_cmd)
+        with open(smt_err, 'a') as errf:
+            subprocess.run(samtools_index_cmd, stderr=errf)
 
         # extraer solo lecturas que mapean con el plásmido en cuestión
+        print('Filtering reads mapping the plasmid')
+        print()
         sam_concat_file = os.path.join(map_path, f'{fasta_basename}_concat.sam')
         samtools_extract_cmd = ['samtools', 'view', '-h', bam_sorted_file, plasmid_id]
-        with open(sam_concat_file, 'w') as of:
-            subprocess.run(samtools_extract_cmd, stdout=of)
+        with open(sam_concat_file, 'w') as stdf, open(smt_err, 'a') as errf:
+            subprocess.run(samtools_extract_cmd, stdout=stdf, stderr=errf)
 
         # pasar sam a bam
         bam_concat_file = os.path.join(map_path, f'{fasta_basename}_concat.bam')
         samtools_bam_cmd = ['samtools', 'view', '-h', '-@', str(threads), '-F', '4', '-bS', sam_concat_file]
-        with open(bam_concat_file, 'w') as of:
-            subprocess.run(samtools_bam_cmd, stdout=of)
+        with open(bam_concat_file, 'w') as stdf, open(smt_err, 'a') as errf:
+            subprocess.run(samtools_bam_cmd, stdout=stdf, stderr=errf)
 
         # generar index
         samtools_index_cmd = ['samtools', 'index', '-@', str(threads), bam_concat_file]
-        subprocess.run(samtools_index_cmd)
+        with open(smt_err, 'a') as errf:
+            subprocess.run(samtools_index_cmd, stderr=errf)
 
         fastq_sorted_file = os.path.join(map_path, f'{fasta_basename}_concat.sorted.fastq.gz')
         samtools_fastq_cmd = ['samtools', 'fastq',  bam_concat_file]
         gzip_cmd = ['gzip']
         sp = subprocess.run(samtools_fastq_cmd, check=True, capture_output=True)
-        with open(fastq_sorted_file, 'w') as of:
-            subprocess.run(gzip_cmd, input=sp.stdout, stdout=of)
+        with open(fastq_sorted_file, 'w') as stdf, open(smt_err, 'a') as errf:
+            subprocess.run(gzip_cmd, input=sp.stdout, stdout=stdf, stderr=errf)
 
         # Plot
-        monomer_len = len(monomers[largest_id])
-        max_len = len(d_fasta[list(d_fasta.keys())[0]])
+        print('Plotting reads length')
         read_lengths, filtered_reads = extract_read_lengths_and_filter_reads(fastq_sorted_file, monomer_len)
         output_file_plot = os.path.join(out_path, f'{fasta_basename}_read_plot.png')
         plot_read_lengths(read_lengths, output_file_plot, monomer_len, max_len)
 
         print(f"Plot saved as {output_file_plot}")
+        print()
     
     else:
         print('Skipping multimer validation.')
         print('To validate, introduce fastq.gz and complete assembly fasta.')
+        print()
     
     print('End of pipeline.')
     sys.exit(0)
