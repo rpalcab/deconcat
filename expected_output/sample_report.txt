@@ -1,0 +1,2 @@
+multimer,original_len,monomer_len,multiplicity
+1,8326,4163,2
