@@ -20,7 +20,7 @@ ls | grep -xv "rep.dna.fas" | xargs rm
 mv rep.dna.fas /new/db/path/
 ```
 
-4. Run program with test data. Check execution is successful.
+3. Run program with test data. Check execution is successful.
 
 ```
 python3 deconcat.py --fasta_file /path/to/sample_plasmid.fasta --assembly_file /path/to/sample.fasta --fastq_file /path/to/sample.fastq.gz --circ_db /path/to/rep.dna.fas
