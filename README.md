@@ -4,13 +4,27 @@ Pipeline for the identification, resolution and validation of biological plasmid
 ## Installation
 1. Install and activate conda environment with required programs and Python packages.
    
-```conda env create -n deconcat --file deconcat_env.yml```
+```
+conda env create -n deconcat --file deconcat_env.yml
+```
 
-2. Download Rep genes database from:
+2. Download the replication genes database from the MOB-suite database, [manually](https://zenodo.org/records/10304948/files/data.tar.gz?download=1) or via command-line:
+```
+# Download DB
+wget https://zenodo.org/records/10304948/files/data.tar.gz
+# Decompress file and move to folder 
+tar -xf data.tar.gz; cd data/
+# Remove all databases but replication genes DB
+ls | grep -xv "rep.dna.fas" | xargs rm
+# Move DB to custom path
+mv rep.dna.fas /new/db/path/
+```
 
-3. Run program with test data. Check execution is successful.
+4. Run program with test data. Check execution is successful.
 
-```python3 deconcat.py --fasta_file /path/to/sample_plasmid.fasta --assembly_file /path/to/sample.fasta --fastq_file /path/to/sample.fastq.gz --circ_db /path/to/rep.dna.fas```
+```
+python3 deconcat.py --fasta_file /path/to/sample_plasmid.fasta --assembly_file /path/to/sample.fasta --fastq_file /path/to/sample.fastq.gz --circ_db /path/to/rep.dna.fas
+```
 
 ## Usage
 ```
@@ -35,8 +49,8 @@ options:
 
 ## Input
 ### Required Inputs:
-- **Plasmid FASTA File**: A single-FASTA file of the plasmid to be analyzed (multi-FASTA files are not supported).
-- **Rep Genes Database Path**: The path to a database of Rep genes.
+- `--fasta_file`: A single-FASTA file of the plasmid to be analyzed (multi-FASTA files are not supported).
+- `--circ_db`: The path to a database of Rep genes.
 
 ### Optional Parameters:
 - `--assembly_file ASSEMBLY_FILE`: Path to a complete assembly FASTA file for the biological multimer validation step.
@@ -51,7 +65,7 @@ After running the program, a folder named either as specified or in the format `
 
 - **Consensus FASTA**: The resolved multimer sequence in its monomer form.
 - **Report File**: A readable text file containing basic information about the process.
-- **Filtered Reads (fastq.gz)**: A compressed FASTQ file containing reads longer than 110% of the monomer length, supporting the biological existence of the monomer.
+- **Filtered Reads (`fastq.gz`)**: A compressed FASTQ file containing reads longer than 110% of the monomer length, supporting the biological existence of the monomer.
 - **Read Length Plot**: A plot visualizing the lengths of reads mapping to the multimer.
 - **Subfolder `blastn`**: Contains intermediate files from the BLASTN execution and logs of the process.
 - **Subfolder `circlator`**: Contains intermediate files from Circlator execution and logs.
