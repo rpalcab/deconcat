@@ -77,6 +77,9 @@ After running the program, a folder named either as specified or in the format `
 ## Schematic workflow
 ![deconcat_stacked](https://github.com/user-attachments/assets/0f0545e1-573e-4b95-9513-98148ae9144c)
 
+## Contact
+Comments and suggestions are always welcome at: rpalcab@gmail.com
+
 ## Next steps
 To do:
 - [x] Emitir informe resumen
