@@ -208,7 +208,7 @@ def main():
     fastq_file = args.fastq_file
     # output folder
     out_path = args.out_path
-    if not os.path.exists(out_path): os.mkdir(out_path)
+    if not os.path.exists(out_path): os.makedirs(out_path, exist_ok=True)
     report_path = os.path.join(out_path, f'{fasta_basename}_report.txt')
     # threads
     threads = args.threads
@@ -310,7 +310,7 @@ def main():
 #     print()
 
     ## 3. validación del multímero biológico
-    if fastq_file != None:
+    if fastq_file != None and len(multimers) > 0:
         print('Step 3: Biological multimer validation')
         print()
 
@@ -375,7 +375,7 @@ def main():
             print('Plotting reads length')
             read_lengths, filtered_reads = extract_read_lengths_and_filter_reads(fastq_sorted_file, monomer_len)
             output_file_plot = os.path.join(out_path, f'{fasta_basename}_{multimer}_read_plot.png')
-            multimer_len = len(d_fasta[contig][0])
+            multimer_len = len(d_fasta[multimer][0])
             plot_read_lengths(read_lengths, output_file_plot, monomer_len, multimer_len)
 
             print(f"Plot saved as {output_file_plot}")
