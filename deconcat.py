@@ -47,7 +47,8 @@ def repetition_search(blast_path, contig_path, query_fasta, fasta_basename, cont
     blast_err = os.path.join(blast_path, f'blast_{contig}.log')
     blastn_cmd = ['blastn', '-query', query_fasta, '-db', contig_path, '-strand', 'plus', 
                 '-outfmt', '6 qseqid sseqid pident qcovhsp length qlen slen qstart qend sstart send sframe evalue bitscore',
-                '-perc_identity', '90', '-qcov_hsp_perc', '95']
+                # '-perc_identity', '90', '-qcov_hsp_perc', '95']
+                '-perc_identity', '80', '-qcov_hsp_perc', '80']
     sort_cmd = ['sort', '-n', '-k', '10,11']
     sp = subprocess.run(blastn_cmd, check=True, capture_output=True)
     with open(blast_out, 'w') as stdf, open(blast_err, 'w') as errf: 
@@ -248,6 +249,7 @@ def main():
             monomer_len = len(monomers[largest_id])
             # max_len = len(d_fasta[list(d_fasta.keys())[0]])
             if len(monomers.keys()) == 1:
+                print("solo un monómero")
                 print('Skipping... Not a multimer')
                 d_contig_corr[f'>{contig}'] = sequence
         #         write_report(report_path, 'No', monomer_len, max_len, monomers)
@@ -261,6 +263,7 @@ def main():
                     si es mayor y el qcov es menor del 90%, no usamos en alineamiento múltiple
                     si es mayor, añadimos al alineamiento múltiple
                 """
+                print("similarity_check")
                 status, l_complete, l_partial = similarity_check(monomers, largest_id)
                 if status == False:
                     d_contig_corr[f'>{contig}'] = sequence
