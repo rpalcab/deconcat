@@ -85,7 +85,6 @@ def extract_monomers(df_reps, sequence, contig_id):
 def similarity_check(monomers, largest_id):
     list_check = [i for i in monomers.keys() if i != largest_id]
     l_complete = [largest_id]
-    l_partial = []
     status = True
 
     for i in list_check:
@@ -94,19 +93,13 @@ def similarity_check(monomers, largest_id):
         aln = aligner.align(monomers[largest_id], monomers[i])[0]
     
         identity = aln.score / len(monomers[largest_id])
-        aligned_query = aln.aligned[0]
-        aligned_length = sum([end - start for start, end in aligned_query])
-        qcov = aligned_length / len(monomers[largest_id])
 
         if identity >= 0.9:
-            if qcov >= 0.9:
-                l_complete.append(i)
-            else:
-                l_partial.append(i)
+            l_complete.append(i)
         else:
             status = False
 
-    return status, l_complete, l_partial
+    return status, l_complete
 
 
 # %%
@@ -262,7 +255,7 @@ def main():
                     si es mayor y el qcov es menor del 90%, no usamos en alineamiento múltiple
                     si es mayor, añadimos al alineamiento múltiple
                 """
-                status, l_complete, l_partial = similarity_check(monomers, largest_id)
+                status, l_complete = similarity_check(monomers, largest_id)
                 if status == False:
                     d_contig_corr[f'>{contig}'] = sequence
                     print('Skipping... Not a multimer')
