@@ -249,7 +249,6 @@ def main():
             monomer_len = len(monomers[largest_id])
             # max_len = len(d_fasta[list(d_fasta.keys())[0]])
             if len(monomers.keys()) == 1:
-                print("solo un monómero")
                 print('Skipping... Not a multimer')
                 d_contig_corr[f'>{contig}'] = sequence
         #         write_report(report_path, 'No', monomer_len, max_len, monomers)
@@ -263,7 +262,6 @@ def main():
                     si es mayor y el qcov es menor del 90%, no usamos en alineamiento múltiple
                     si es mayor, añadimos al alineamiento múltiple
                 """
-                print("similarity_check")
                 status, l_complete, l_partial = similarity_check(monomers, largest_id)
                 if status == False:
                     d_contig_corr[f'>{contig}'] = sequence
