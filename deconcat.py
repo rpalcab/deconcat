@@ -364,18 +364,21 @@ def main():
             sp = subprocess.run(samtools_fastq_cmd, check=True, capture_output=True)
             with open(fastq_sorted_file, 'w') as stdf, open(smt_err, 'a') as errf:
                 subprocess.run(gzip_cmd, input=sp.stdout, stdout=stdf, stderr=errf)
-
+            
             # Plot
             print('Plotting reads length')
             read_lengths, filtered_reads = extract_read_lengths_and_filter_reads(fastq_sorted_file, monomer_len)
-            output_file_plot = os.path.join(out_path, f'{fasta_basename}_{multimer}_read_plot.png')
+            fastq_filtered_file = os.path.join(out_path, f'{fasta_basename}_{multimer}.filtered.fastq.gz')
             multimer_len = len(d_fasta[multimer][0])
             monomer_len = len(d_contig_corr[f'>{multimer}'])
             plot_read_lengths(read_lengths, output_file_plot, monomer_len, multimer_len)
-
             print(f"Plot saved as {output_file_plot}")
-            print()
-        
+            
+            # Filtered reads
+            save_filtered_reads(filtered_reads, fastq_filtered_file)
+            output_file_plot = os.path.join(out_path, f'{fasta_basename}_{multimer}_read_plot.png')
+            print(f"Reads exceeding 150% monomer length saved as {fastq_filtered_file}")
+            
     else:
         print('Skipping multimer validation.')
         print('To validate, introduce fastq.gz and complete assembly fasta.')
