@@ -106,7 +106,7 @@ def similarity_check(monomers, largest_id):
 def extract_read_lengths_and_filter_reads(fastq_gz_file, monomer_length):
     read_lengths = []
     filtered_reads = []
-    threshold_length = monomer_length * 1.1
+    threshold_length = monomer_length * 1.5
     with gzip.open(fastq_gz_file, "rt") as handle:
         for record in SeqIO.parse(handle, "fastq"):
             read_length = len(record.seq)
