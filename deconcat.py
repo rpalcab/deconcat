@@ -239,7 +239,7 @@ def main():
             df_reps = pd.read_table(blast_out, header=None)
 
             monomers, largest_id = extract_monomers(df_reps, sequence, contig)
-            monomer_len = len(monomers[largest_id])
+            # monomer_len = len(monomers[largest_id])
             # max_len = len(d_fasta[list(d_fasta.keys())[0]])
             if len(monomers.keys()) == 1:
                 print('Skipping... Not a multimer')
@@ -367,16 +367,18 @@ def main():
             
             # Plot
             print('Plotting reads length')
-            read_lengths, filtered_reads = extract_read_lengths_and_filter_reads(fastq_sorted_file, monomer_len)
-            fastq_filtered_file = os.path.join(out_path, f'{fasta_basename}_{multimer}.filtered.fastq.gz')
             multimer_len = len(d_fasta[multimer][0])
             monomer_len = len(d_contig_corr[f'>{multimer}'])
+            read_lengths, filtered_reads = extract_read_lengths_and_filter_reads(fastq_sorted_file, monomer_len)
+            output_file_plot = os.path.join(out_path, f'{fasta_basename}_{multimer}_read_plot.png')
+            # multimer_len = len(d_fasta[multimer][0])
+            # monomer_len = len(d_contig_corr[f'>{multimer}'])
             plot_read_lengths(read_lengths, output_file_plot, monomer_len, multimer_len)
             print(f"Plot saved as {output_file_plot}")
             
             # Filtered reads
+            fastq_filtered_file = os.path.join(out_path, f'{fasta_basename}_{multimer}.filtered.fastq.gz')
             save_filtered_reads(filtered_reads, fastq_filtered_file)
-            output_file_plot = os.path.join(out_path, f'{fasta_basename}_{multimer}_read_plot.png')
             print(f"Reads exceeding 150% monomer length saved as {fastq_filtered_file}")
             
     else:
