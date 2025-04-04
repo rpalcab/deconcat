@@ -380,7 +380,7 @@ def main():
             fastq_filtered_file = os.path.join(out_path, f'{fasta_basename}_{multimer}.filtered.fastq.gz')
             save_filtered_reads(filtered_reads, fastq_filtered_file)
             print(f"Reads exceeding 150% monomer length saved as {fastq_filtered_file}")
-            
+        
     else:
         print('Skipping multimer validation.')
         print('To validate, introduce fastq.gz and complete assembly fasta.')
