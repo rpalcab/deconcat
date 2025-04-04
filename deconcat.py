@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import os
 import sys
@@ -9,7 +9,6 @@ import subprocess
 import pandas as pd
 import matplotlib.pyplot as plt
 import argparse
-import csv
 
 # %%
 def read_fasta(fasta_file, max_len=200000, query_len=1200):
@@ -31,9 +30,27 @@ def write_fasta(output_file, d_seq):
             output_handle.write(v + "\n")
     return None
 
+def run_command(cmd_list, input_data=None):
+    try:
+        result = subprocess.run(
+            cmd_list,
+            input=input_data,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        print(f"Error running command: {' '.join(cmd_list)}")
+        print(f"Exit code: {e.returncode}")
+        print(f"Stdout: {e.stdout}")
+        print(f"Stderr: {e.stderr}")
+        raise
+
 def create_blastdb(out_path, contig, sequence):
     blast_path = os.path.join(out_path, 'blastn')
-    if not os.path.exists(blast_path): os.mkdir(blast_path)
+    if not os.path.exists(blast_path): os.makedirs(blast_path, exist_ok=True)
     contig_path = os.path.join(blast_path, f"{contig}.fasta")
     write_fasta(contig_path, {f'>{contig}': sequence})
     mkblast_err = os.path.join(blast_path, f'makeblastdb_{contig}.log')
@@ -45,14 +62,34 @@ def create_blastdb(out_path, contig, sequence):
 def repetition_search(blast_path, contig_path, query_fasta, fasta_basename, contig):
     blast_out = os.path.join(blast_path, f'{fasta_basename}_{contig}_blast.out')
     blast_err = os.path.join(blast_path, f'blast_{contig}.log')
-    blastn_cmd = ['blastn', '-query', query_fasta, '-db', contig_path, '-strand', 'plus', 
-                '-outfmt', '6 qseqid sseqid pident qcovhsp length qlen slen qstart qend sstart send sframe evalue bitscore',
-                # '-perc_identity', '90', '-qcov_hsp_perc', '95']
-                '-perc_identity', '80', '-qcov_hsp_perc', '80']
+    
+    # Blastn command
+    blastn_cmd = ['blastn', '-query', query_fasta, '-db', contig_path, \
+                  '-strand', 'plus', '-outfmt', \
+                  '6 qseqid sseqid pident qcovhsp length qlen slen qstart qend sstart send sframe evalue bitscore', \
+                  '-perc_identity', '80', '-qcov_hsp_perc', '80']
+    blastn_stdout = run_command(blastn_cmd)
+    
+    # Sort command
     sort_cmd = ['sort', '-n', '-k', '10,11']
-    sp = subprocess.run(blastn_cmd, check=True, capture_output=True)
-    with open(blast_out, 'w') as stdf, open(blast_err, 'w') as errf: 
-        subprocess.run(sort_cmd, input=sp.stdout, stdout=stdf, stderr=errf)
+    try:
+        sort_result = subprocess.run(
+            sort_cmd,
+            input=blastn_stdout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        print("Sorting command failed.")
+        raise
+    
+    with open(blast_out, 'w') as stdf:
+        stdf.write(sort_result.stdout)
+    with open(blast_err, 'w') as errf:
+        errf.write(sort_result.stderr)
+    
     return blast_out
 
 # %%
@@ -83,17 +120,14 @@ def extract_monomers(df_reps, sequence, contig_id):
 
 # %%
 def similarity_check(monomers, largest_id):
+    aligner = Align.PairwiseAligner()
+    aligner.mode = 'global'
     list_check = [i for i in monomers.keys() if i != largest_id]
     l_complete = [largest_id]
     status = True
-
     for i in list_check:
-        aligner = Align.PairwiseAligner()
-        aligner.mode = 'global'
         aln = aligner.align(monomers[largest_id], monomers[i])[0]
-    
         identity = aln.score / len(monomers[largest_id])
-
         if identity >= 0.9:
             l_complete.append(i)
         else:
@@ -145,26 +179,17 @@ def parse_arguments():
     parser.add_argument("--fasta_file", type=str, required=True, 
                         help="Path to plasmid fasta file")
     
-    # parser.add_argument("--assembly_file", type=str, default=None, 
-    #                     help="Path to complete assembly fasta file")
-    
     parser.add_argument("--fastq_file", type=str, default=None, 
                         help="Path to long read fastq.gz")
     
     parser.add_argument("--out_path", type=str, default=None, 
-                        help="Output path (default: plasmid_file_monomer")
-
-    # parser.add_argument("--circ_db", type=str, required=True, 
-    #                     help="Circlator DB path")
+                        help="Output path. Default: plasmid_file_monomer")
 
     parser.add_argument("--threads", type=int, default=6, 
                         help="Number of threads (default: 6)")
     
     parser.add_argument("--max_len", type=int, default=200000, 
                         help="Maximum plasmid length (default: 200000)")
-    
-    # parser.add_argument("--plasmid_id", type=str, default=None, 
-    #                     help="Plasmid id (contig name) in complete assembly fasta (default: same id as in plasmid fasta file)")
     
     args = parser.parse_args()
     
@@ -202,7 +227,7 @@ def main():
     fastq_file = args.fastq_file
     # output folder
     out_path = args.out_path
-    if not os.path.exists(out_path): os.makedirs(out_path, exist_ok=True)
+    os.makedirs(out_path, exist_ok=True)
     report_path = os.path.join(out_path, f'{fasta_basename}_report.txt')
     # threads
     threads = args.threads
@@ -229,7 +254,7 @@ def main():
 
             # 1.2 guardar query en un archivo
             query_fasta = os.path.join(blast_path, f'query_{contig}.fasta')
-            write_fasta(query_fasta, {f'>query_sequence': query})
+            write_fasta(query_fasta, {'>query_sequence': query})
 
             # 1.3 localizar repeticiones con blastn
             blast_out = repetition_search(blast_path, contig_path, query_fasta, fasta_basename, contig)
@@ -239,14 +264,9 @@ def main():
             df_reps = pd.read_table(blast_out, header=None)
 
             monomers, largest_id = extract_monomers(df_reps, sequence, contig)
-            # monomer_len = len(monomers[largest_id])
-            # max_len = len(d_fasta[list(d_fasta.keys())[0]])
             if len(monomers.keys()) == 1:
                 print('Skipping... Not a multimer')
                 d_contig_corr[f'>{contig}'] = sequence
-        #         write_report(report_path, 'No', monomer_len, max_len, monomers)
-        #         print(f'Find statistical report on: {report_path}')
-        #         sys.exit(0)
             else:
             # 2.2 Comprobación de similitud
                 """
@@ -364,15 +384,13 @@ def main():
             sp = subprocess.run(samtools_fastq_cmd, check=True, capture_output=True)
             with open(fastq_sorted_file, 'w') as stdf, open(smt_err, 'a') as errf:
                 subprocess.run(gzip_cmd, input=sp.stdout, stdout=stdf, stderr=errf)
-            
+
             # Plot
             print('Plotting reads length')
             multimer_len = len(d_fasta[multimer][0])
             monomer_len = len(d_contig_corr[f'>{multimer}'])
             read_lengths, filtered_reads = extract_read_lengths_and_filter_reads(fastq_sorted_file, monomer_len)
             output_file_plot = os.path.join(out_path, f'{fasta_basename}_{multimer}_read_plot.png')
-            # multimer_len = len(d_fasta[multimer][0])
-            # monomer_len = len(d_contig_corr[f'>{multimer}'])
             plot_read_lengths(read_lengths, output_file_plot, monomer_len, multimer_len)
             print(f"Plot saved as {output_file_plot}")
             
@@ -392,5 +410,3 @@ def main():
 # %%
 if __name__ == "__main__":
     main()
-
-
