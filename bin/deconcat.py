@@ -176,19 +176,24 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Identification, resolution and biological confirmation of plasmid multimers.")
     
     # Input paths
-    parser.add_argument("--fasta_file", type=str, required=True, 
-                        help="Path to plasmid fasta file")
+    input_group = parser.add_argument_group('Input arguments')
+    input_group.add_argument("--fasta_file", type=str, required=True, 
+                        help="Path to plasmid fasta file. REQUIRED")
     
-    parser.add_argument("--fastq_file", type=str, default=None, 
+    input_group.add_argument("--fastq_file", type=str, default=None, 
                         help="Path to long read fastq.gz")
-    
-    parser.add_argument("--out_path", type=str, default=None, 
+
+    # Output paths
+    opt_group = parser.add_argument_group('Output arguments')
+    opt_group.add_argument("--out_path", type=str, default=None, 
                         help="Output path. Default: plasmid_file_monomer")
 
-    parser.add_argument("--threads", type=int, default=6, 
+    # Tunning arguments
+    tun_group = parser.add_argument_group('Tunning arguments')
+    tun_group.add_argument("--threads", type=int, default=6, 
                         help="Number of threads (default: 6)")
     
-    parser.add_argument("--max_len", type=int, default=200000, 
+    tun_group.add_argument("--max_len", type=int, default=200000, 
                         help="Maximum plasmid length (default: 200000)")
     
     args = parser.parse_args()
