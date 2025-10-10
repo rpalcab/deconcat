@@ -3,6 +3,7 @@
 import os
 import sys
 import gzip
+import csv
 from Bio import SeqIO
 from Bio import Align
 import subprocess
@@ -124,16 +125,19 @@ def similarity_check(monomers, largest_id):
     aligner.mode = 'global'
     list_check = [i for i in monomers.keys() if i != largest_id]
     l_complete = [largest_id]
+    l_partial = []
     status = True
     for i in list_check:
         aln = aligner.align(monomers[largest_id], monomers[i])[0]
         identity = aln.score / len(monomers[largest_id])
         if identity >= 0.9:
             l_complete.append(i)
+        elif identity >= 0.5:
+            l_partial.append(i)
         else:
             status = False
 
-    return status, l_complete
+    return status, l_complete, l_partial
 
 
 # %%
@@ -203,18 +207,19 @@ def parse_arguments():
 
     return args
 
-# #%%
-# def write_report(report_path, multimer, monomer_len, max_len, monomers):
-#     d_output = {'is_multimer': multimer,
-#                 'original_len': max_len,
-#                 'monomer_len': monomer_len,
-#                 'multiplicity': len(monomers.keys())}
-    
-#     with open(report_path, mode='w', newline='') as of:
-#         csv_writer = csv.DictWriter(of, fieldnames=d_output.keys())
-#         csv_writer.writeheader()
-#         csv_writer.writerow(d_output)
-#     return None
+#%%
+def write_report(report_path, d_report):
+    fieldnames = ['contig'] + list(next(iter(d_report.values())).keys())
+
+    with open(report_path, mode='w', newline='') as of:
+        writer = csv.DictWriter(of, fieldnames=fieldnames, delimiter='\t')
+        writer.writeheader()
+        for contig, info in d_report.items():
+            row = {'contig': contig}
+            row.update(info)
+            writer.writerow(row)
+
+    return report_path
 
 # # %%
 def main():
@@ -244,6 +249,7 @@ def main():
 
     # 1.1 Procesar contigs uno a uno
     d_contig_corr = {}
+    d_report = {}
     multimers = []
     for contig in d_fasta.keys():
         print(contig)
@@ -252,6 +258,7 @@ def main():
         if d_fasta[contig][1] == '':
             print('Skipping... Too large or too small.')
             d_contig_corr[f'>{contig}'] = sequence
+            d_report[contig] = {'is_multimer': 'No', 'original_len': len(sequence), 'monomer_len': len(sequence), 'multiplicity': 1}
         else:
             print('Checking...')
             # 1.1 creación de blastdb a partir de fasta circularizado
@@ -272,6 +279,7 @@ def main():
             if len(monomers.keys()) == 1:
                 print('Skipping... Not a multimer')
                 d_contig_corr[f'>{contig}'] = sequence
+                d_report[contig] = {'is_multimer': 'No', 'original_len': len(sequence), 'monomer_len': len(sequence), 'multiplicity': 1}
             else:
             # 2.2 Comprobación de similitud
                 """
@@ -280,13 +288,11 @@ def main():
                     si es mayor y el qcov es menor del 90%, no usamos en alineamiento múltiple
                     si es mayor, añadimos al alineamiento múltiple
                 """
-                status, l_complete = similarity_check(monomers, largest_id)
+                status, l_complete, l_partial = similarity_check(monomers, largest_id)
                 if status == False:
-                    d_contig_corr[f'>{contig}'] = sequence
                     print('Skipping... Not a multimer')
-                    # write_report(report_path, 'No', max_len, max_len, monomers)
-                    # print(f'Find statistical report on: {report_path}')
-                    # sys.exit(0)
+                    d_contig_corr[f'>{contig}'] = sequence
+                    d_report[contig] = {'is_multimer': 'No', 'original_len': len(sequence), 'monomer_len': len(sequence), 'multiplicity': 1}
                 else:
                     # 2.3 Alineamiento múltiple de las secuencias que pasan los criterios "completa"
                     multimers.append(contig)
@@ -302,31 +308,44 @@ def main():
                             of.write(f'>{i}\n')
                             of.write(f'{monomers[i]}\n')
 
-                    aln_file = os.path.join(monomer_path, 'complete_monomers.aln')
-                    aln_err = os.path.join(monomer_path, 'mafft.log')
-                    mafft_cmd = ['mafft', '--adjustdirectionaccurately', '--thread', str(threads), monomer_file]
-                    with open(aln_file, 'w') as stdf, open(aln_err, 'w') as errf:
-                        subprocess.run(mafft_cmd, stdout=stdf, stderr=errf)
-
-                    # 2.4 Generación del consenso
                     cons_file = os.path.join(out_path, f'{contig}_consensus.fasta')
-                    cons_cmd = ['em_cons', '-sequence', aln_file, '-outseq', cons_file, '-name', contig]
-                    subprocess.run(cons_cmd)
-                    print('Multimer resolved')
-                    d_cons = read_fasta(cons_file, query_len=0)
-                    d_contig_corr[f'>{contig}'] = str(d_cons[contig][0])
+                    if len(l_complete) > 1:
+                        aln_file = os.path.join(monomer_path, 'complete_monomers.aln')
+                        aln_err = os.path.join(monomer_path, 'mafft.log')
+                        mafft_cmd = ['mafft', '--adjustdirectionaccurately', '--thread', str(threads), monomer_file]
+                        with open(aln_file, 'w') as stdf, open(aln_err, 'w') as errf:
+                            subprocess.run(mafft_cmd, stdout=stdf, stderr=errf)
+
+                        # 2.4 Generación del consenso
+                        cons_cmd = ['em_cons', '-sequence', aln_file, '-outseq', cons_file, '-name', contig]
+                        subprocess.run(cons_cmd)
+                        print('Multimer resolved')
+                        d_cons = read_fasta(cons_file, query_len=0)
+                        d_contig_corr[f'>{contig}'] = str(d_cons[contig][0])
+                        d_report[contig] = {'is_multimer': 'Yes', 
+                                            'original_len': len(sequence), 
+                                            'monomer_len': len(d_cons[contig][0]), 
+                                            'multiplicity': round(len(sequence) / len(d_cons[contig][0]), ndigits=1)}
+                    else:
+                        print('Only one complete monomer found. Using it as consensus.')
+                        d_contig_corr[f'>{contig}'] = str(monomers[l_complete[0]])
+                        write_fasta(cons_file, {f'>{contig}': monomers[l_complete[0]]})
+                        d_report[contig] = {'is_multimer': 'Yes', 
+                                            'original_len': len(sequence), 
+                                            'monomer_len': len(monomers[l_complete[0]]), 
+                                            'multiplicity': round(len(sequence) / len(monomers[l_complete[0]]), ndigits=1)}
 
     output_file = os.path.join(out_path, f'{fasta_basename}_corr.fasta')
     write_fasta(output_file, d_contig_corr)
     print(f'Written in {output_file}')
 
-#     # 2.5 Devolver report
-#     write_report(report_path, 'Yes', monomer_len, max_len, monomers)
+    # 2.5 Devolver report
+    write_report(report_path, d_report)
 
-#     print(f'Find monomer consensus at: {cons_file}')
-#     print(f'Find divided multimer at: {monomer_file}')
-#     print(f'Find statistical report on: {report_path}')
-#     print()
+    print(f'Find monomer consensus at: {cons_file}')
+    print(f'Find divided multimer at: {monomer_file}')
+    print(f'Find statistical report on: {report_path}')
+    print()
 
     ## 3. validación del multímero biológico
     if fastq_file != None and len(multimers) > 0:
@@ -403,7 +422,9 @@ def main():
             fastq_filtered_file = os.path.join(out_path, f'{fasta_basename}_{multimer}.filtered.fastq.gz')
             save_filtered_reads(filtered_reads, fastq_filtered_file)
             print(f"Reads exceeding 150% monomer length saved as {fastq_filtered_file}")
-        
+    elif len(multimers) == 0:
+        print('No multimers detected.')
+        print()
     else:
         print('Skipping multimer validation.')
         print('To validate, introduce fastq.gz and complete assembly fasta.')
