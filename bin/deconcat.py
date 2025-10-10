@@ -6,10 +6,77 @@ import gzip
 import csv
 from Bio import SeqIO
 from Bio import Align
+from datetime import datetime
 import subprocess
 import pandas as pd
 import matplotlib.pyplot as plt
 import argparse
+import shutil
+import glob
+
+class Logger:
+    COLORS = {
+        "reset": "\033[0m",
+        "blue": "\033[94m",
+        "green": "\033[92m",
+        "yellow": "\033[93m",
+        "red": "\033[91m",
+        "cyan": "\033[96m",
+        "bold": "\033[1m"
+    }
+
+    @staticmethod
+    def timestamp():
+        return datetime.now().strftime("%H:%M:%S")
+
+    @classmethod
+    def info(cls, msg):
+        print(f"\n[{cls.COLORS['cyan']}{cls.timestamp()}{cls.COLORS['reset']}] {cls.COLORS['bold']}{msg}{cls.COLORS['reset']}")
+
+    @classmethod
+    def step(cls, msg):
+        print(f"{cls.COLORS['blue']}▶ STEP:{cls.COLORS['reset']} {msg}{cls.COLORS['reset']}")
+
+    @classmethod
+    def warn(cls, msg):
+        print(f"{cls.COLORS['yellow']}⚠ {msg}{cls.COLORS['reset']}")
+
+    @classmethod
+    def done(cls, msg="Done"):
+        print(f"{cls.COLORS['green']}✓ {msg}{cls.COLORS['reset']}")
+
+# %%
+def parse_arguments():
+
+    parser = argparse.ArgumentParser(description="Identification, resolution and biological confirmation of plasmid multimers.")
+    
+    # Input paths
+    input_group = parser.add_argument_group('Input arguments')
+    input_group.add_argument("--fasta_file", type=str, required=True, 
+                        help="Path to plasmid fasta file. REQUIRED")
+    
+    input_group.add_argument("--fastq_file", type=str, default=None, 
+                        help="Path to long read fastq.gz")
+
+    # Output paths
+    opt_group = parser.add_argument_group('Output arguments')
+    opt_group.add_argument("--out_path", type=str, default=None, 
+                        help="Output path. Default: plasmid_file_monomer")
+
+    # Tunning arguments
+    tun_group = parser.add_argument_group('Tunning arguments')
+    tun_group.add_argument("--threads", type=int, default=6, 
+                        help="Number of threads (default: 6)")
+    
+    tun_group.add_argument("--max_len", type=int, default=200000, 
+                        help="Maximum plasmid length (default: 200000)")
+    
+    args = parser.parse_args()
+    
+    if args.out_path is None:
+        args.out_path = os.path.splitext(args.fasta_file)[0] + '_monomer'
+
+    return args
 
 # %%
 def read_fasta(fasta_file, max_len=200000, query_len=1200):
@@ -62,7 +129,6 @@ def create_blastdb(out_path, contig, sequence):
 
 def repetition_search(blast_path, contig_path, query_fasta, fasta_basename, contig):
     blast_out = os.path.join(blast_path, f'{fasta_basename}_{contig}_blast.out')
-    blast_err = os.path.join(blast_path, f'blast_{contig}.log')
     
     # Blastn command
     blastn_cmd = ['blastn', '-query', query_fasta, '-db', contig_path, \
@@ -88,9 +154,10 @@ def repetition_search(blast_path, contig_path, query_fasta, fasta_basename, cont
     
     with open(blast_out, 'w') as stdf:
         stdf.write(sort_result.stdout)
-    with open(blast_err, 'w') as errf:
-        errf.write(sort_result.stderr)
     
+    for f in glob.glob(f"{blast_path}/*.fasta*"):
+        os.remove(f)
+
     return blast_out
 
 # %%
@@ -174,38 +241,18 @@ def save_filtered_reads(filtered_reads, output_file):
     with gzip.open(output_file, "wt") as handle:
         SeqIO.write(filtered_reads, handle, "fastq")
 
-# %%
-def parse_arguments():
+def remove_file(path):
+    try:
+        os.remove(path)
+    except Exception as e:
+        Logger.warn(f"Failed to remove file {path}: {e}")
 
-    parser = argparse.ArgumentParser(description="Identification, resolution and biological confirmation of plasmid multimers.")
-    
-    # Input paths
-    input_group = parser.add_argument_group('Input arguments')
-    input_group.add_argument("--fasta_file", type=str, required=True, 
-                        help="Path to plasmid fasta file. REQUIRED")
-    
-    input_group.add_argument("--fastq_file", type=str, default=None, 
-                        help="Path to long read fastq.gz")
-
-    # Output paths
-    opt_group = parser.add_argument_group('Output arguments')
-    opt_group.add_argument("--out_path", type=str, default=None, 
-                        help="Output path. Default: plasmid_file_monomer")
-
-    # Tunning arguments
-    tun_group = parser.add_argument_group('Tunning arguments')
-    tun_group.add_argument("--threads", type=int, default=6, 
-                        help="Number of threads (default: 6)")
-    
-    tun_group.add_argument("--max_len", type=int, default=200000, 
-                        help="Maximum plasmid length (default: 200000)")
-    
-    args = parser.parse_args()
-    
-    if args.out_path is None:
-        args.out_path = os.path.splitext(args.fasta_file)[0] + '_monomer'
-
-    return args
+def remove_folder(path):
+    try:
+        shutil.rmtree(path)
+        Logger.done(f"Removed directory: {path}")
+    except Exception as e:
+        Logger.warn(f"Failed to remove {path}: {e}")
 
 #%%
 def write_report(report_path, d_report):
@@ -243,24 +290,20 @@ def main():
     threads = args.threads
 
     ## 1. identificación de las repeticiones
-    print()
-    print('Step 1: Repetition identification')
-    print()
-
     # 1.1 Procesar contigs uno a uno
     d_contig_corr = {}
     d_report = {}
     multimers = []
     for contig in d_fasta.keys():
-        print(contig)
+        Logger.info(f"Processing contig: {contig}")
+        Logger.step("Repetition identification")
         sequence = str(d_fasta[contig][0])
         query = d_fasta[contig][1]
         if d_fasta[contig][1] == '':
-            print('Skipping... Too large or too small.')
+            Logger.warn("Skipping... Too large or too small.")
             d_contig_corr[f'>{contig}'] = sequence
             d_report[contig] = {'is_multimer': 'No', 'original_len': len(sequence), 'monomer_len': len(sequence), 'multiplicity': 1}
         else:
-            print('Checking...')
             # 1.1 creación de blastdb a partir de fasta circularizado
             blast_path, contig_path = create_blastdb(out_path, contig, sequence)
 
@@ -277,41 +320,40 @@ def main():
 
             monomers, largest_id = extract_monomers(df_reps, sequence, contig)
             if len(monomers.keys()) == 1:
-                print('Skipping... Not a multimer')
+                Logger.warn("Skipping... Not a multimer")
                 d_contig_corr[f'>{contig}'] = sequence
                 d_report[contig] = {'is_multimer': 'No', 'original_len': len(sequence), 'monomer_len': len(sequence), 'multiplicity': 1}
             else:
             # 2.2 Comprobación de similitud
-                """
-                    pairwise de todos los monómeros frente al de mayor tamaño.
-                    si la identidad es menor de 90%, no son monómeros
-                    si es mayor y el qcov es menor del 90%, no usamos en alineamiento múltiple
-                    si es mayor, añadimos al alineamiento múltiple
-                """
                 status, l_complete, l_partial = similarity_check(monomers, largest_id)
                 if status == False:
-                    print('Skipping... Not a multimer')
+                    Logger.warn("Skipping... Not a multimer")
                     d_contig_corr[f'>{contig}'] = sequence
                     d_report[contig] = {'is_multimer': 'No', 'original_len': len(sequence), 'monomer_len': len(sequence), 'multiplicity': 1}
                 else:
                     # 2.3 Alineamiento múltiple de las secuencias que pasan los criterios "completa"
                     multimers.append(contig)
-                    print('Multimer!')
-                    print()
-                    print('Step 2: Monomer creation')
+                    Logger.done("Multimer detected")
+                    Logger.step("Monomer creation")
 
                     monomer_path = os.path.join(out_path, 'monomers')
                     if not os.path.exists(monomer_path): os.mkdir(monomer_path)
-                    monomer_file = os.path.join(monomer_path, 'complete_monomers.fasta')
+                    monomer_file = os.path.join(monomer_path, f'complete_monomers_{contig}.fasta')
                     with open(monomer_file, 'w') as of: 
                         for i in l_complete:
                             of.write(f'>{i}\n')
                             of.write(f'{monomers[i]}\n')
 
+                    all_monomers_file = os.path.join(monomer_path, f'all_monomers_{contig}.fasta')
+                    with open(all_monomers_file, 'w') as of: 
+                        for i in l_complete + l_partial:
+                            of.write(f'>{i}\n')
+                            of.write(f'{monomers[i]}\n')
+
                     cons_file = os.path.join(out_path, f'{contig}_consensus.fasta')
                     if len(l_complete) > 1:
-                        aln_file = os.path.join(monomer_path, 'complete_monomers.aln')
-                        aln_err = os.path.join(monomer_path, 'mafft.log')
+                        aln_file = os.path.join(monomer_path, f'complete_monomers_{contig}.aln')
+                        aln_err = os.path.join(monomer_path, f'mafft_{contig}.log')
                         mafft_cmd = ['mafft', '--adjustdirectionaccurately', '--thread', str(threads), monomer_file]
                         with open(aln_file, 'w') as stdf, open(aln_err, 'w') as errf:
                             subprocess.run(mafft_cmd, stdout=stdf, stderr=errf)
@@ -319,7 +361,7 @@ def main():
                         # 2.4 Generación del consenso
                         cons_cmd = ['em_cons', '-sequence', aln_file, '-outseq', cons_file, '-name', contig]
                         subprocess.run(cons_cmd)
-                        print('Multimer resolved')
+                        Logger.done("Multimer resolved")
                         d_cons = read_fasta(cons_file, query_len=0)
                         d_contig_corr[f'>{contig}'] = str(d_cons[contig][0])
                         d_report[contig] = {'is_multimer': 'Yes', 
@@ -327,7 +369,7 @@ def main():
                                             'monomer_len': len(d_cons[contig][0]), 
                                             'multiplicity': round(len(sequence) / len(d_cons[contig][0]), ndigits=1)}
                     else:
-                        print('Only one complete monomer found. Using it as consensus.')
+                        Logger.warn("Only one complete monomer found. Using it as consensus.")
                         d_contig_corr[f'>{contig}'] = str(monomers[l_complete[0]])
                         write_fasta(cons_file, {f'>{contig}': monomers[l_complete[0]]})
                         d_report[contig] = {'is_multimer': 'Yes', 
@@ -337,23 +379,16 @@ def main():
 
     output_file = os.path.join(out_path, f'{fasta_basename}_corr.fasta')
     write_fasta(output_file, d_contig_corr)
-    print(f'Written in {output_file}')
 
     # 2.5 Devolver report
     write_report(report_path, d_report)
 
-    print(f'Find monomer consensus at: {cons_file}')
-    print(f'Find divided multimer at: {monomer_file}')
-    print(f'Find statistical report on: {report_path}')
-    print()
-
     ## 3. validación del multímero biológico
     if fastq_file != None and len(multimers) > 0:
-        print('Step 3: Biological multimer validation')
-        print()
+        Logger.info("Biological multimer validation")
 
         # Mapeo
-        print('Mapping reads to assembly')
+        Logger.step("Mapping reads to assembly...")
         map_path = os.path.join(out_path, 'multimer_mapping')
         if not os.path.exists(map_path): os.mkdir(map_path)
 
@@ -370,6 +405,7 @@ def main():
         samtools_filter_cmd = ['samtools', 'view', '-h', '-@', str(threads), '-F', '4', '-bS', sam_file]
         with open(bam_file, 'w') as stdf, open(smt_err, 'w') as errf:
             subprocess.run(samtools_filter_cmd, stdout=stdf, stderr=errf)
+        remove_file(sam_file)
 
         # ordenar
         bam_sorted_file = os.path.join(map_path, f'{fasta_basename}_whole_genome.sorted.bam')
@@ -381,11 +417,11 @@ def main():
         samtools_index_cmd = ['samtools', 'index', '-@', str(threads), bam_sorted_file]
         with open(smt_err, 'a') as errf:
             subprocess.run(samtools_index_cmd, stderr=errf)
+        remove_file(bam_file)
 
         # extraer solo lecturas que mapean con el plásmido en cuestión
         for multimer in multimers:
-            print(f'Filtering reads mapping plasmid: {multimer}')
-            print()
+            Logger.step(f"Filtering reads mapping plasmid: {multimer}")
             sam_concat_file = os.path.join(map_path, f'{fasta_basename}_{multimer}.sam')
             samtools_extract_cmd = ['samtools', 'view', '-h', bam_sorted_file, multimer]
             with open(sam_concat_file, 'w') as stdf, open(smt_err, 'a') as errf:
@@ -396,6 +432,7 @@ def main():
             samtools_bam_cmd = ['samtools', 'view', '-h', '-@', str(threads), '-F', '4', '-bS', sam_concat_file]
             with open(bam_concat_file, 'w') as stdf, open(smt_err, 'a') as errf:
                 subprocess.run(samtools_bam_cmd, stdout=stdf, stderr=errf)
+            remove_file(sam_concat_file)
 
             # generar index
             samtools_index_cmd = ['samtools', 'index', '-@', str(threads), bam_concat_file]
@@ -410,27 +447,29 @@ def main():
                 subprocess.run(gzip_cmd, input=sp.stdout, stdout=stdf, stderr=errf)
 
             # Plot
-            print('Plotting reads length')
+            Logger.step("Plotting reads length")
             multimer_len = len(d_fasta[multimer][0])
             monomer_len = len(d_contig_corr[f'>{multimer}'])
             read_lengths, filtered_reads = extract_read_lengths_and_filter_reads(fastq_sorted_file, monomer_len)
             output_file_plot = os.path.join(out_path, f'{fasta_basename}_{multimer}_read_plot.png')
             plot_read_lengths(read_lengths, output_file_plot, monomer_len, multimer_len)
-            print(f"Plot saved as {output_file_plot}")
-            
             # Filtered reads
             fastq_filtered_file = os.path.join(out_path, f'{fasta_basename}_{multimer}.filtered.fastq.gz')
             save_filtered_reads(filtered_reads, fastq_filtered_file)
-            print(f"Reads exceeding 150% monomer length saved as {fastq_filtered_file}")
-    elif len(multimers) == 0:
-        print('No multimers detected.')
-        print()
-    else:
-        print('Skipping multimer validation.')
-        print('To validate, introduce fastq.gz and complete assembly fasta.')
-        print()
+            remove_file(fastq_sorted_file)
+
+            Logger.done(f"Plot saved as {output_file_plot}")
+            Logger.done(f"Reads exceeding 150% monomer length saved as {fastq_filtered_file}")
         
-    print('End of pipeline.')
+    elif len(multimers) == 0:
+        print()
+        Logger.warn("No multimers detected.")
+    else:
+        Logger.warn("Skipping multimer validation (no FASTQ provided).")
+
+    Logger.done(f"Corrected FASTA written to: {output_file}")
+    Logger.info("End of pipeline.")
+    print("\n" + "-" * 60 + "\n")
     sys.exit(0)
 
 # %%
